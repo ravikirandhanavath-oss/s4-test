@@ -1,0 +1,7 @@
+{
+  "xsappname": "s4-test",
+  "tenant-mode": "dedicated",
+  "description": "S/4 connection test",
+  "scopes": [],
+  "role-templates": []
+}

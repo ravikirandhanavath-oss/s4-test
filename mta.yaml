@@ -1,0 +1,102 @@
+_schema-version: 3.3.0
+ID: s4-test
+version: 1.0.0
+description: Minimal CAP project to test the S/4 connection via destination SCB_VanStock_400
+
+parameters:
+  enable-parallel-deployments: true
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm install
+        - npx cds build --production
+
+modules:
+  # CAP backend
+  - name: s4-test-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 256M
+      disk-quota: 512M
+    build-parameters:
+      builder: npm
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: s4-test-auth
+      - name: s4-test-db
+      - name: s4-test-destination
+      - name: s4-test-connectivity
+
+  # deploys the test table to HANA, then stops
+  - name: s4-test-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 256M
+    requires:
+      - name: s4-test-db
+
+  # login (approuter) - the URL you open in the browser
+  - name: s4-test
+    type: approuter.nodejs
+    path: app/router
+    parameters:
+      memory: 256M
+      disk-quota: 256M
+      keep-existing-routes: true
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: s4-test-auth
+    provides:
+      - name: app-api
+        properties:
+          app-uri: ${default-uri}
+
+resources:
+  - name: s4-test-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: s4-test-${org}-${space}
+        tenant-mode: dedicated
+        oauth2-configuration:
+          redirect-uris:
+            - https://*~{app-api/app-uri}/**
+    requires:
+      - name: app-api
+
+  - name: s4-test-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+
+  # reads destination SCB_VanStock_400 (user, password, Cloud Connector location)
+  - name: s4-test-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  # tunnel to on-premise S/4 through Cloud Connector
+  - name: s4-test-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
